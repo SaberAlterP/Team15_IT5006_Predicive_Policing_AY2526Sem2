@@ -1,5 +1,7 @@
 import inspect
+import math
 from pathlib import Path
+from typing import List, Optional
 
 import pandas as pd
 import plotly.express as px
@@ -35,43 +37,22 @@ def cols(spec, **kwargs):
 st.markdown(
     """
 <style>
-/* -----------------------------
-   GLOBAL LAYOUT
------------------------------- */
 .block-container { padding-top: 1.2rem; }
 
-/* -----------------------------
-   SIDEBAR: enforce a larger minimum width to prevent squishing
-   - This prevents the "select all" button from becoming vertical text
-   - Works by forcing min-width on common sidebar wrappers
------------------------------- */
-
-/* Choose your minimum sidebar width here */
-:root{
-  --sidebar-min-width: 360px;   /* <- you can set to 340/360/380 based on preference */
-}
-
-/* The sidebar container itself */
+/* Sidebar min width */
+:root{ --sidebar-min-width: 360px; }
 section[data-testid="stSidebar"]{
   min-width: var(--sidebar-min-width) !important;
-  width: max(var(--sidebar-min-width), 21rem) !important; /* keep a sensible base width */
+  width: max(var(--sidebar-min-width), 21rem) !important;
 }
-
-/* Some Streamlit builds wrap sidebar content in additional elements */
 section[data-testid="stSidebar"] > div,
 section[data-testid="stSidebar"] > div:first-child,
 section[data-testid="stSidebar"] div[data-testid="stSidebarContent"]{
   min-width: var(--sidebar-min-width) !important;
 }
+div[data-testid="stAppViewContainer"] > div{ min-width: 0; }
 
-/* If the app uses the resizable layout wrapper, prevent it from shrinking too far */
-div[data-testid="stAppViewContainer"] > div{
-  min-width: 0;
-}
-
-/* -----------------------------
-   SIDEBAR THEME
------------------------------- */
+/* Sidebar theme */
 [data-testid="stSidebar"]{
   background: linear-gradient(180deg, #fbfcfe 0%, #f6f7fb 100%);
   border-right: 1px solid #e7e9f2;
@@ -123,7 +104,6 @@ section[data-testid="stSidebar"] [data-baseweb="tag"]{
 section[data-testid="stSidebar"] [data-baseweb="tag"] span{ color:#fff !important; }
 section[data-testid="stSidebar"] [data-baseweb="tag"] svg{ fill:#fff !important; }
 
-/* Base button styling in sidebar */
 section[data-testid="stSidebar"] button{
   border-radius: 12px !important;
   padding: 0.55rem 0.85rem !important;
@@ -138,7 +118,6 @@ section[data-testid="stSidebar"] hr{
   border-top: 1px solid #e7e9f2;
 }
 
-/* Right-align the "select all" button blocks (Years/Categories) */
 section[data-testid="stSidebar"] .btn-right{
   display: flex;
   justify-content: flex-end;
@@ -146,7 +125,6 @@ section[data-testid="stSidebar"] .btn-right{
   width: 100%;
 }
 
-/* target the actual button inside the wrapper */
 section[data-testid="stSidebar"] .btn-right div[data-testid="stFormSubmitButton"]{
   width: auto !important;
   flex: 0 0 auto !important;
@@ -162,7 +140,6 @@ section[data-testid="stSidebar"] .btn-right div[data-testid="stFormSubmitButton"
   flex: 0 0 auto !important;
 }
 
-/* Make the final Apply button taller + highlighted */
 section[data-testid="stSidebar"] form div[data-testid="stFormSubmitButton"]:last-of-type button{
   background: linear-gradient(180deg, #f2a0a0 0%, #e86a6a 100%) !important;
   color: #ffffff !important;
@@ -270,14 +247,15 @@ div[data-testid="stMetricValue"] > div{
 )
 
 # -----------------------------
-# 3) Data Loading (Hugging Face dataset via Parquet; fixes UnicodeDecodeError)
+# 3) Data Loading (Cloud-safe)
 # -----------------------------
 HF_DATASET_ID = "Ayanamikus/chicago-crime"
 
 CACHE_DIR = Path(".streamlit_cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-LOCAL_PARQUET = CACHE_DIR / "chicago_crime_cached.parquet"
+LOCAL_MAIN_SAMPLE = CACHE_DIR / "main_sample_300k.parquet"
+LOCAL_MAP_SAMPLE = CACHE_DIR / "map_sample_60k.parquet"
 
 
 def _show_loading_overlay(title: str, subtitle: str = ""):
@@ -296,24 +274,6 @@ def _show_loading_overlay(title: str, subtitle: str = ""):
         unsafe_allow_html=True,
     )
     return ph
-
-
-@st.cache_data(show_spinner=False)
-def load_data_from_hf_parquet(sample_rows: int = 300_000, seed: int = 42) -> pd.DataFrame:
-    if LOCAL_PARQUET.exists():
-        df = pd.read_parquet(LOCAL_PARQUET)
-        return _postprocess_df(df)
-
-    from datasets import load_dataset
-
-    ds = load_dataset(HF_DATASET_ID, split="train")
-
-    if sample_rows and sample_rows > 0 and sample_rows < len(ds):
-        ds = ds.shuffle(seed=seed).select(range(sample_rows))
-
-    df = ds.to_pandas()
-    df.to_parquet(LOCAL_PARQUET, index=False)
-    return _postprocess_df(df)
 
 
 def _postprocess_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -341,12 +301,149 @@ def _postprocess_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _balanced_sample_by_year(
+    dfx: pd.DataFrame,
+    year_col: str,
+    n_total: int,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """
+    Stratified sampling by year: allocate roughly equal quota per year.
+    Keeps per-year representation for animations.
+    """
+    if dfx.empty:
+        return dfx
+
+    years = sorted([y for y in dfx[year_col].dropna().unique()])
+    if not years:
+        return dfx.sample(n=min(n_total, len(dfx)), random_state=seed)
+
+    quota = max(1, n_total // len(years))
+
+    parts: List[pd.DataFrame] = []
+    rng_seed = seed
+    for y in years:
+        sub = dfx[dfx[year_col] == y]
+        if sub.empty:
+            continue
+        take = min(quota, len(sub))
+        parts.append(sub.sample(n=take, random_state=rng_seed))
+        rng_seed += 1
+
+    out = pd.concat(parts, ignore_index=True) if parts else dfx.sample(n=min(n_total, len(dfx)), random_state=seed)
+
+    # If we undershot (years with few rows), top up from remaining
+    if len(out) < min(n_total, len(dfx)):
+        remaining = dfx.drop(index=out.index, errors="ignore")
+        need = min(n_total - len(out), len(remaining))
+        if need > 0:
+            out = pd.concat([out, remaining.sample(n=need, random_state=seed + 999)], ignore_index=True)
+
+    return out
+
+
+@st.cache_data(show_spinner=False)
+def load_main_sample(sample_rows: int = 300_000, seed: int = 42) -> pd.DataFrame:
+    """
+    Main sample for non-map charts & filtering.
+    Cloud-safe: stores only the sample parquet.
+    """
+    if LOCAL_MAIN_SAMPLE.exists():
+        df = pd.read_parquet(LOCAL_MAIN_SAMPLE, engine="pyarrow")
+        return _postprocess_df(df)
+
+    from datasets import load_dataset
+
+    ds = load_dataset(HF_DATASET_ID, split="train")
+
+    # Keep only columns needed by the app (reduces memory)
+    needed_cols = [
+        "Date",
+        "Year",
+        "year",
+        "Primary Type",
+        "Arrest",
+        "Domestic",
+        "Latitude",
+        "Longitude",
+        "Location Description",
+        "hour",
+        "day_of_week",
+        "month_year",
+    ]
+    keep = [c for c in needed_cols if c in ds.column_names]
+    drop = [c for c in ds.column_names if c not in keep]
+    if drop:
+        ds = ds.remove_columns(drop)
+
+    n = len(ds)
+    if sample_rows and 0 < sample_rows < n:
+        ds = ds.shuffle(seed=seed).select(range(sample_rows))
+
+    df = ds.to_pandas()
+    df.to_parquet(LOCAL_MAIN_SAMPLE, index=False, engine="pyarrow", compression="zstd")
+    return _postprocess_df(df)
+
+
+@st.cache_data(show_spinner=False)
+def load_map_sample(max_points: int = 60_000, seed: int = 42) -> pd.DataFrame:
+    """
+    Map-focused sample (balanced by year, only geo-needed columns).
+    This is what the map uses; it is *not* the full dataset.
+    """
+    if LOCAL_MAP_SAMPLE.exists():
+        m = pd.read_parquet(LOCAL_MAP_SAMPLE, engine="pyarrow")
+        # no extra postprocess needed beyond Year/Date
+        return _postprocess_df(m)
+
+    from datasets import load_dataset
+
+    ds = load_dataset(HF_DATASET_ID, split="train")
+
+    # Only map-related columns
+    needed_cols = [
+        "Date",
+        "Year",
+        "year",
+        "Primary Type",
+        "Arrest",
+        "Domestic",
+        "Latitude",
+        "Longitude",
+        "Location Description",
+    ]
+    keep = [c for c in needed_cols if c in ds.column_names]
+    drop = [c for c in ds.column_names if c not in keep]
+    if drop:
+        ds = ds.remove_columns(drop)
+
+    # Take an intermediate sample first (to avoid converting full to pandas)
+    # This intermediate sample should be larger than max_points to allow filtering NA coords + stratification.
+    intermediate = max(200_000, max_points * 4)
+    intermediate = min(intermediate, len(ds))
+    ds = ds.shuffle(seed=seed).select(range(intermediate))
+
+    m = ds.to_pandas()
+    m = _postprocess_df(m)
+
+    # Require coordinates
+    m = m.dropna(subset=["Latitude", "Longitude"]).copy()
+    if "Year" not in m.columns and "year" in m.columns:
+        m["Year"] = m["year"]
+
+    # Balanced by year for animation
+    m2 = _balanced_sample_by_year(m, "Year", n_total=max_points, seed=seed)
+    m2.to_parquet(LOCAL_MAP_SAMPLE, index=False, engine="pyarrow", compression="zstd")
+    return m2
+
+
 loading = _show_loading_overlay(
-    "Loading dataset from Hugging Face…",
-    f"Using Parquet backend to avoid CSV decoding errors. Dataset: {HF_DATASET_ID}",
+    "Loading dataset (Cloud-safe)…",
+    f"Dataset: {HF_DATASET_ID} | Building cached samples for dashboard and maps.",
 )
 try:
-    df_all = load_data_from_hf_parquet(sample_rows=300_000, seed=42)
+    df_all = load_main_sample(sample_rows=300_000, seed=42)
+    map_df_all = load_map_sample(max_points=60_000, seed=42)
 finally:
     loading.empty()
 
@@ -413,11 +510,7 @@ with st.sidebar.form("filters_form", clear_on_submit=False):
         st.multiselect("Years", all_years, key="draft_years")
     with y_btn:
         st.markdown('<div class="btn-right">', unsafe_allow_html=True)
-        btn_all_years = form_submit(
-            "select all",
-            key="select_all_years",
-            use_container_width=False,
-        )
+        btn_all_years = form_submit("select all", key="select_all_years", use_container_width=False)
         st.markdown("</div>", unsafe_allow_html=True)
 
     t_sel, t_btn = cols([7, 3], vertical_alignment="bottom")
@@ -425,15 +518,25 @@ with st.sidebar.form("filters_form", clear_on_submit=False):
         st.multiselect("Categories", all_types, key="draft_types")
     with t_btn:
         st.markdown('<div class="btn-right">', unsafe_allow_html=True)
-        btn_all_types = form_submit(
-            "select all",
-            key="select_all_types",
-            use_container_width=False,
-        )
+        btn_all_types = form_submit("select all", key="select_all_types", use_container_width=False)
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     apply_btn = st.form_submit_button("Apply", use_container_width=True)
+
+st.sidebar.markdown("---")
+with st.sidebar.expander("Performance / Cache", expanded=False):
+    st.caption("Streamlit Cloud storage is ephemeral; cache persists only while the instance lives.")
+    st.write("Main sample cache:", str(LOCAL_MAIN_SAMPLE))
+    st.write("Map sample cache:", str(LOCAL_MAP_SAMPLE))
+    if st.button("Clear cached samples (this session)"):
+        if LOCAL_MAIN_SAMPLE.exists():
+            LOCAL_MAIN_SAMPLE.unlink()
+        if LOCAL_MAP_SAMPLE.exists():
+            LOCAL_MAP_SAMPLE.unlink()
+        st.cache_data.clear()
+        st.success("Cleared. Rerun now.")
+        st.rerun()
 
 if btn_all_years:
     st.session_state["_pending_select_all_years"] = True
@@ -449,7 +552,15 @@ if apply_btn:
 
 s_years = st.session_state["applied_years"]
 s_types = st.session_state["applied_types"]
+
 df = df_all[(df_all["Year"].isin(s_years)) & (df_all["Primary Type"].isin(s_types))].copy()
+
+# Map DF uses separate sample but must respect same filters
+map_df = map_df_all.copy()
+if "Year" in map_df.columns:
+    map_df = map_df[map_df["Year"].isin(s_years)]
+if "Primary Type" in map_df.columns:
+    map_df = map_df[map_df["Primary Type"].isin(s_types)]
 
 # -----------------------------
 # 5) Title + KPI
@@ -458,7 +569,7 @@ st.title("Chicago Crime Analysis Dashboard (2014–2024)")
 st.markdown("---")
 
 r1c1, r1c2, r1c3 = st.columns(3)
-r1c1.metric("Total Sample", f"{len(df):,}")
+r1c1.metric("Total Sample (charts)", f"{len(df):,}")
 r1c2.metric("Avg. Arrest Rate", f"{(df['Arrest'].mean() * 100):.1f}%")
 r1c3.metric("Domestic Rate", f"{(df['Domestic'].mean() * 100):.1f}%")
 
@@ -467,7 +578,7 @@ r2c1.metric("Categories", f"{df['Primary Type'].nunique()}")
 r2c2.metric("Selected Years", f"{len(s_years)}")
 
 tab1, tab2, tab3, tab4 = st.tabs(
-    ["Temporal Trends", "Spatial Analysis", "Categories & Arrests", "Technical Insights"]
+    ["Temporal Trends", "Spatial Analysis (Map)", "Categories & Arrests", "Technical Insights"]
 )
 
 # ----------------------------
@@ -577,13 +688,13 @@ with tab1:
         st.plotly_chart(fig_h, use_container_width=True)
 
 # ----------------------------
-# Tab 2: Spatial Analysis
+# Tab 2: Spatial Analysis (Map)  <-- your priority
 # ----------------------------
 with tab2:
-    st.markdown("### Interactive Spatial Patterns")
+    st.markdown("### Interactive Spatial Patterns (Balanced sample, Cloud-safe)")
 
     needed = {"Latitude", "Longitude", "Year", "Primary Type"}
-    missing = [c for c in needed if c not in df.columns]
+    missing = [c for c in needed if c not in map_df.columns]
     if missing:
         st.warning(f"Cannot draw map: missing columns {missing}")
     else:
@@ -600,13 +711,18 @@ with tab2:
             color_by = st.selectbox("Color by", ["Primary Type", "Arrest", "Domestic"], index=0, key="s_colorby")
             show_only_arrests = st.checkbox("Show arrests only", value=False, key="s_only_arrests")
 
-        m_df = df.dropna(subset=["Latitude", "Longitude"]).copy()
+            st.caption(
+                "Note: Map uses a cached balanced sample (not full 2.8M points) to stay responsive on Streamlit Cloud."
+            )
+
+        m_df = map_df.dropna(subset=["Latitude", "Longitude"]).copy()
         if show_only_arrests and "Arrest" in m_df.columns:
             m_df = m_df[m_df["Arrest"] == True]  # noqa: E712
 
         m_df = m_df.rename(columns={"Latitude": "lat", "Longitude": "lon"}).sort_values("Year")
 
-        if len(m_df) > max_points:
+        # Enforce max points with per-year cap to keep animation consistent
+        if len(m_df) > max_points and m_df["Year"].nunique() > 0:
             per_year = max(1, max_points // max(1, m_df["Year"].nunique()))
             m_df = (
                 m_df.sample(frac=1, random_state=42)
@@ -616,7 +732,9 @@ with tab2:
             )
 
         with s_col_map:
-            if map_mode == "Animated points by Year":
+            if m_df.empty:
+                st.info("No map points under the current filters.")
+            elif map_mode == "Animated points by Year":
                 fig_m = px.scatter_map(
                     m_df,
                     lat="lat",
@@ -716,10 +834,13 @@ with tab4:
     st.markdown("### Data Diagnostics")
     st.markdown(
         """
-- **Data Source**: Hugging Face dataset `Ayanamikus/chicago-crime` (loaded via Parquet).
-- **Maps**: Records with missing coordinates are excluded from spatial views.
+- **Data Source**: Hugging Face dataset `Ayanamikus/chicago-crime` (loaded via `datasets` with Cloud-safe caching).
+- **Maps**: Use a cached balanced sample with coordinates to keep animations/heatmaps responsive.
 """
     )
+    st.write("Main sample rows:", f"{len(df_all):,}")
+    st.write("Map sample rows:", f"{len(map_df_all):,}")
+
     num_cols = df.select_dtypes(include=["number"]).columns
     if len(num_cols) > 0:
         corr = df[num_cols].corr()
