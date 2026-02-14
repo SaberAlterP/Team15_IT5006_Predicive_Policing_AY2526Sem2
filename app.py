@@ -1,0 +1,654 @@
+import inspect
+from pathlib import Path
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+# -----------------------------
+# 1) Page Configuration & UI Theme
+# -----------------------------
+st.set_page_config(page_title="Chicago Crime Dashboard", layout="wide")
+px.defaults.template = "plotly_white"
+
+# Streamlit version compatibility
+_FORM_SUBMIT_SIG = inspect.signature(st.form_submit_button).parameters
+_COL_SIG = inspect.signature(st.columns).parameters
+
+
+def form_submit(label, **kwargs):
+    """Compatibility wrapper for st.form_submit_button (older versions may not support type=)."""
+    if "type" not in _FORM_SUBMIT_SIG:
+        kwargs.pop("type", None)
+    return st.form_submit_button(label, **kwargs)
+
+
+def cols(spec, **kwargs):
+    """Compatibility wrapper for st.columns (older versions may not support vertical_alignment=)."""
+    if "vertical_alignment" not in _COL_SIG and "vertical_alignment" in kwargs:
+        kwargs.pop("vertical_alignment", None)
+    return st.columns(spec, **kwargs)
+
+
+# -----------------------------
+# 2) CSS (Sidebar card + multiselect tags + Apply button visible)
+# -----------------------------
+st.markdown(
+    """
+<style>
+/* ---------- Global spacing ---------- */
+.block-container { padding-top: 1.2rem; }
+
+/* ---------- Sidebar base ---------- */
+[data-testid="stSidebar"]{
+  background: linear-gradient(180deg, #fbfcfe 0%, #f6f7fb 100%);
+  border-right: 1px solid #e7e9f2;
+}
+section[data-testid="stSidebar"] .block-container{
+  padding-top: 0.6rem;
+  padding-bottom: 0.8rem;
+}
+
+/* ---------- Sidebar form looks like a card ---------- */
+section[data-testid="stSidebar"] div[data-testid="stForm"],
+section[data-testid="stSidebar"] form{
+  background: #ffffff;
+  border: 1px solid #e7e9f2;
+  border-radius: 16px;
+  padding: 16px 14px;
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.06);
+}
+
+/* Sidebar headings */
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3{
+  margin: 0.2rem 0 0.7rem 0;
+  letter-spacing: -0.02em;
+}
+section[data-testid="stSidebar"] h3{
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #111827;
+}
+
+/* Labels */
+section[data-testid="stSidebar"] label{
+  font-weight: 650 !important;
+  color: #111827 !important;
+}
+
+/* ---------- Multiselect / Select styling (BaseWeb) ---------- */
+section[data-testid="stSidebar"] [data-baseweb="select"] > div{
+  border-radius: 12px !important;
+  border-color: #e5e7eb !important;
+  background: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(17, 24, 39, 0.02);
+}
+section[data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within{
+  border-color: #f08b8b !important;
+  box-shadow: 0 0 0 3px rgba(240, 139, 139, 0.25) !important;
+}
+
+/* Selected pills/tags */
+section[data-testid="stSidebar"] [data-baseweb="tag"]{
+  background: #e45b5b !important;
+  color: #ffffff !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(0,0,0,0.05) !important;
+  font-weight: 700 !important;
+}
+section[data-testid="stSidebar"] [data-baseweb="tag"] span{
+  color: #ffffff !important;
+}
+section[data-testid="stSidebar"] [data-baseweb="tag"] svg{
+  fill: #ffffff !important;
+}
+
+/* ---------- Buttons (general) ---------- */
+section[data-testid="stSidebar"] button{
+  border-radius: 12px !important;
+  padding: 0.55rem 0.85rem !important;
+  font-weight: 750 !important;
+  border: 1px solid #e5e7eb !important;
+  background: #ffffff !important;
+}
+section[data-testid="stSidebar"] button:hover{
+  border-color: #d7dbe7 !important;
+  background: #fbfbfd !important;
+}
+
+/* ---------- Divider inside form ---------- */
+section[data-testid="stSidebar"] hr{
+  margin: 0.8rem 0 0.9rem 0;
+  border: none;
+  border-top: 1px solid #e7e9f2;
+}
+
+/* ---------- Apply button (IMPORTANT) ----------
+   Only style the LAST submit button inside the sidebar form (Apply).
+   This avoids relying on kind="primary" which varies across Streamlit versions. */
+section[data-testid="stSidebar"] form div[data-testid="stFormSubmitButton"]:last-of-type button{
+  background: linear-gradient(180deg, #f2a0a0 0%, #e86a6a 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(0,0,0,0.06) !important;
+  box-shadow: 0 10px 24px rgba(232, 106, 106, 0.25) !important;
+  padding: 0.8rem 0.9rem !important;
+  border-radius: 14px !important;
+  font-size: 1.05rem !important;
+}
+
+/* Force all text/icon inside Apply to be white (fix “button box exists but label invisible”) */
+section[data-testid="stSidebar"] form div[data-testid="stFormSubmitButton"]:last-of-type button *{
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+section[data-testid="stSidebar"] form div[data-testid="stFormSubmitButton"]:last-of-type button:hover{
+  filter: brightness(0.98);
+  transform: translateY(-0.5px);
+}
+
+/* ---------- KPI cards (st.metric) - compact + avoid ellipsis ---------- */
+.stMetric{
+  background-color:#ffffff;
+  padding:10px 12px;
+  border-radius:10px;
+  border: 1px solid #eef0f6;
+  box-shadow:0 8px 20px rgba(17, 24, 39, 0.05);
+  margin:0 !important;
+}
+div[data-testid="stMetricLabel"]{
+  font-size:0.85rem !important;
+  line-height:1.1 !important;
+  margin-bottom:0.25rem !important;
+  white-space:nowrap !important;
+  color: #374151 !important;
+  font-weight: 650 !important;
+}
+div[data-testid="stMetricValue"],
+div[data-testid="stMetricValue"] > div{
+  font-size:clamp(1.2rem, 2.0vw, 2.2rem) !important;
+  line-height:1.05 !important;
+  font-variant-numeric: tabular-nums;
+  white-space:nowrap !important;
+  overflow:visible !important;
+  text-overflow:clip !important;
+  color: #111827 !important;
+}
+div[data-testid="stHorizontalBlock"]{ gap: 0.75rem; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+# -----------------------------
+# 3) Data Loading
+# -----------------------------
+@st.cache_data
+def load_data():
+    path = Path(__file__).parent / "processed_chicago_crime_data.csv"
+    if not path.exists():
+        st.error(f"Data file not found: {path}")
+        return pd.DataFrame()
+
+    df = pd.read_csv(path)
+
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    # Feature recovery with consistent naming
+    if "hour" not in df.columns:
+        df["hour"] = df["Date"].dt.hour if "Date" in df.columns else pd.NA
+    if "day_of_week" not in df.columns:
+        df["day_of_week"] = df["Date"].dt.day_name() if "Date" in df.columns else pd.NA
+    if "month_year" not in df.columns:
+        if "Date" in df.columns:
+            df["month_year"] = df["Date"].dt.to_period("M").astype(str)
+        else:
+            df["month_year"] = pd.NA
+
+    if "month" not in df.columns:
+        if "Date" in df.columns:
+            df["month"] = df["Date"].dt.to_period("M").dt.to_timestamp()
+        else:
+            df["month"] = pd.NaT
+
+    return df
+
+
+df_all = load_data()
+if df_all.empty:
+    st.stop()
+
+# -----------------------------
+# 4) Sidebar Filters (select all + apply)
+# -----------------------------
+required = {"Year", "Primary Type", "Arrest", "Domestic"}
+missing_req = [c for c in required if c not in df_all.columns]
+if missing_req:
+    st.error(f"Missing required columns in CSV: {missing_req}")
+    st.stop()
+
+all_years = sorted(df_all["Year"].dropna().unique())
+all_types = sorted(df_all["Primary Type"].dropna().unique())
+
+
+def _sanitize_selection(values, options, fallback):
+    """Keep only items present in options; if empty, return fallback."""
+    s = [v for v in (values or []) if v in options]
+    return s if s else fallback
+
+
+# Initialize session_state
+if "applied_years" not in st.session_state:
+    st.session_state["applied_years"] = all_years
+if "applied_types" not in st.session_state:
+    default_types = [t for t in ["THEFT", "BATTERY", "NARCOTICS"] if t in all_types] or all_types
+    st.session_state["applied_types"] = default_types
+
+# Draft values (edited in the form before clicking Apply)
+if "draft_years" not in st.session_state:
+    st.session_state["draft_years"] = st.session_state["applied_years"]
+if "draft_types" not in st.session_state:
+    st.session_state["draft_types"] = st.session_state["applied_types"]
+
+# Pending flags for "select all" buttons
+if "_pending_select_all_years" not in st.session_state:
+    st.session_state["_pending_select_all_years"] = False
+if "_pending_select_all_types" not in st.session_state:
+    st.session_state["_pending_select_all_types"] = False
+
+# Sanitize current state
+st.session_state["applied_years"] = _sanitize_selection(st.session_state["applied_years"], all_years, all_years)
+st.session_state["draft_years"] = _sanitize_selection(
+    st.session_state["draft_years"], all_years, st.session_state["applied_years"]
+)
+st.session_state["applied_types"] = _sanitize_selection(st.session_state["applied_types"], all_types, all_types)
+st.session_state["draft_types"] = _sanitize_selection(
+    st.session_state["draft_types"], all_types, st.session_state["applied_types"]
+)
+
+if st.session_state.get("_pending_select_all_years", False):
+    st.session_state["draft_years"] = all_years
+    st.session_state["_pending_select_all_years"] = False
+
+if st.session_state.get("_pending_select_all_types", False):
+    st.session_state["draft_types"] = all_types
+    st.session_state["_pending_select_all_types"] = False
+
+with st.sidebar.form("filters_form", clear_on_submit=False):
+    st.markdown("### Filters")
+
+    # Years row
+    y_sel, y_btn = cols([6, 2], vertical_alignment="bottom")
+    with y_sel:
+        st.multiselect("Years", all_years, key="draft_years")
+    with y_btn:
+        btn_all_years = form_submit("Select all years", use_container_width=True)
+
+    # Types row
+    t_sel, t_btn = cols([6, 2], vertical_alignment="bottom")
+    with t_sel:
+        st.multiselect("Categories", all_types, key="draft_types")
+    with t_btn:
+        btn_all_types = form_submit("Select all categories", use_container_width=True)
+
+    st.markdown("---")
+
+    apply_btn = st.form_submit_button("Apply", use_container_width=True)
+
+# Handle button clicks (avoid touching widget-bound state in the same run)
+if btn_all_years:
+    st.session_state["_pending_select_all_years"] = True
+    st.rerun()
+
+if btn_all_types:
+    st.session_state["_pending_select_all_types"] = True
+    st.rerun()
+
+if apply_btn:
+    years_to_apply = _sanitize_selection(st.session_state.get("draft_years"), all_years, all_years)
+    types_to_apply = _sanitize_selection(st.session_state.get("draft_types"), all_types, all_types)
+    st.session_state["applied_years"] = years_to_apply
+    st.session_state["applied_types"] = types_to_apply
+
+# Use APPLIED filters
+s_years = st.session_state["applied_years"]
+s_types = st.session_state["applied_types"]
+df = df_all[(df_all["Year"].isin(s_years)) & (df_all["Primary Type"].isin(s_types))].copy()
+
+# -----------------------------
+# 5) Title + KPI
+# -----------------------------
+st.title("Chicago Crime Analysis Dashboard (2014–2024)")
+st.markdown("---")
+
+r1c1, r1c2, r1c3 = st.columns(3)
+r1c1.metric("Total Sample", f"{len(df):,}")
+r1c2.metric("Avg. Arrest Rate", f"{(df['Arrest'].mean() * 100):.1f}%")
+r1c3.metric("Domestic Rate", f"{(df['Domestic'].mean() * 100):.1f}%")
+
+r2c1, r2c2 = st.columns(2)
+r2c1.metric("Categories", f"{df['Primary Type'].nunique()}")
+r2c2.metric("Selected Years", f"{len(s_years)}")
+
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["Temporal Trends", "Spatial Analysis", "Categories & Arrests", "Technical Insights"]
+)
+
+# ----------------------------
+# Tab 1: Temporal Trends
+# ----------------------------
+with tab1:
+    if "hour" in df.columns and df["hour"].notna().any():
+        h_data_sum = df.dropna(subset=["hour"]).groupby("hour").size()
+        peak_hour = int(h_data_sum.idxmax()) if not h_data_sum.empty else 0
+    else:
+        peak_hour = 0
+
+    st.markdown("### Interactive Temporal Patterns")
+
+    t_col_nav, t_col_plot = st.columns([1, 4])
+    with t_col_nav:
+        metric = st.radio("Metric", ["Crime Volume", "Arrest Rate (%)"], key="t_metric")
+        smooth = st.checkbox("Smooth Trend (6M)", key="t_smooth")
+        show_range_slider = st.checkbox("Show range slider", value=True, key="t_slider")
+
+        st.markdown("---")
+        granularity = st.selectbox(
+            "Granularity",
+            ["Monthly", "Weekly", "Daily"],
+            index=0,
+            key="t_granularity",
+        )
+        top_n_types = st.slider("Top N Types (for stacked chart)", 3, 12, 6, key="t_topn")
+
+    with t_col_plot:
+        if "Date" not in df.columns or df["Date"].isna().all():
+            st.warning("No valid Date column available; temporal plots may be limited.")
+        else:
+            dfx = df.dropna(subset=["Date"]).copy()
+
+            if granularity == "Monthly":
+                dfx["t"] = dfx["Date"].dt.to_period("M").dt.to_timestamp()
+            elif granularity == "Weekly":
+                dfx["t"] = dfx["Date"].dt.to_period("W-MON").dt.start_time
+            else:
+                dfx["t"] = dfx["Date"].dt.floor("D")
+
+            if metric == "Crime Volume":
+                ts = dfx.groupby("t").size().reset_index(name="Val")
+                y_title = "Incidents"
+            else:
+                ts = dfx.groupby("t")["Arrest"].mean().reset_index(name="Val")
+                ts["Val"] = ts["Val"] * 100
+                y_title = "Arrest rate (%)"
+
+            ts = ts.sort_values("t")
+            if smooth and len(ts) > 0:
+                ts["Val"] = ts["Val"].rolling(window=6, min_periods=1).mean()
+
+            fig_ts = px.line(ts, x="t", y="Val", title=f"{granularity} Trend: {metric}")
+            fig_ts.update_layout(
+                xaxis_title="Time",
+                yaxis_title=y_title,
+                hovermode="x unified",
+            )
+            if show_range_slider:
+                fig_ts.update_layout(xaxis=dict(rangeslider=dict(visible=True)))
+
+            fig_ts.add_vrect(
+                x0="2020-03-01",
+                x1="2021-06-30",
+                fillcolor="lightgrey",
+                opacity=0.25,
+                line_width=0,
+                annotation_text="COVID-19 Lockdown",
+            )
+
+            st.plotly_chart(fig_ts, use_container_width=True)
+
+    st.markdown("---")
+
+    st.subheader("Interactive Category Composition Over Time (Stacked)")
+    st.caption("Tip: click legend items to isolate categories; zoom and pan to inspect local changes.")
+
+    if "Date" in df.columns and df["Date"].notna().any():
+        dfx = df.dropna(subset=["Date"]).copy()
+        dfx["t"] = dfx["Date"].dt.to_period("M").dt.to_timestamp()
+
+        top_types = dfx["Primary Type"].value_counts().head(top_n_types).index.tolist()
+        dfx["Type_grouped"] = dfx["Primary Type"].where(dfx["Primary Type"].isin(top_types), other="OTHER")
+
+        area = (
+            dfx.groupby(["t", "Type_grouped"])
+            .size()
+            .reset_index(name="Count")
+            .sort_values("t")
+        )
+
+        fig_area = px.area(
+            area,
+            x="t",
+            y="Count",
+            color="Type_grouped",
+            title=f"Monthly Volume by Type (Top {top_n_types} + OTHER)",
+        )
+        fig_area.update_layout(hovermode="x unified")
+        st.plotly_chart(fig_area, use_container_width=True)
+    else:
+        st.info("Cannot build stacked composition plot: missing/invalid Date.")
+
+    st.markdown("---")
+
+    st.subheader("Hourly Activity Density (Heatmap)")
+    st.markdown(
+        f"""
+        **Insight**: This heatmap shows the intersection of hour and weekday.  
+        Peak hour in the current selection: **{peak_hour:02d}:00**.
+        """
+    )
+
+    if "day_of_week" not in df.columns or "hour" not in df.columns:
+        st.warning("Cannot draw heatmap: missing 'day_of_week' or 'hour' column.")
+    else:
+        day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        h_map = (
+            df.dropna(subset=["day_of_week", "hour"])
+            .groupby(["day_of_week", "hour"])
+            .size()
+            .unstack(fill_value=0)
+            .reindex(day_order)
+        )
+        fig_h = px.imshow(
+            h_map,
+            labels=dict(x="Hour (0-23)", y="Day of Week", color="Count"),
+            color_continuous_scale="GnBu",
+        )
+        st.plotly_chart(fig_h, use_container_width=True)
+
+# ----------------------------
+# Tab 2: Spatial Analysis
+# ----------------------------
+with tab2:
+    st.markdown("### Interactive Spatial Patterns")
+
+    needed = {"Latitude", "Longitude", "Year", "Primary Type"}
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        st.warning(f"Cannot draw map: missing columns {missing}")
+    else:
+        s_col_nav, s_col_map = st.columns([1, 4])
+        with s_col_nav:
+            st.markdown("#### Map controls")
+            map_mode = st.radio(
+                "Mode",
+                ["Animated points by Year", "Density (heatmap)", "Hexbin-like (grid)"],
+                index=0,
+                key="s_mode",
+            )
+            max_points = st.slider(
+                "Max points (performance)",
+                2000,
+                60000,
+                20000,
+                step=2000,
+                key="s_maxpts",
+            )
+            color_by = st.selectbox(
+                "Color by",
+                ["Primary Type", "Arrest", "Domestic"],
+                index=0,
+                key="s_colorby",
+            )
+            show_only_arrests = st.checkbox("Show arrests only", value=False, key="s_only_arrests")
+
+        m_df = df.dropna(subset=["Latitude", "Longitude"]).copy()
+        if show_only_arrests and "Arrest" in m_df.columns:
+            m_df = m_df[m_df["Arrest"] == True]  # noqa: E712
+
+        m_df = m_df.rename(columns={"Latitude": "lat", "Longitude": "lon"}).sort_values("Year")
+
+        if len(m_df) > max_points:
+            per_year = max(1, max_points // max(1, m_df["Year"].nunique()))
+            m_df = (
+                m_df.sample(frac=1, random_state=42)
+                .groupby("Year", group_keys=False)
+                .head(per_year)
+                .sort_values("Year")
+            )
+
+        with s_col_map:
+            if map_mode == "Animated points by Year":
+                fig_m = px.scatter_map(
+                    m_df,
+                    lat="lat",
+                    lon="lon",
+                    color=color_by,
+                    animation_frame="Year",
+                    zoom=10,
+                    height=650,
+                    map_style="carto-positron",
+                    hover_data={
+                        "Primary Type": True,
+                        "Arrest": True if "Arrest" in m_df.columns else False,
+                        "Domestic": True if "Domestic" in m_df.columns else False,
+                        "Location Description": True if "Location Description" in m_df.columns else False,
+                    },
+                )
+                st.plotly_chart(fig_m, use_container_width=True)
+
+            elif map_mode == "Density (heatmap)":
+                fig_d = px.density_map(
+                    m_df,
+                    lat="lat",
+                    lon="lon",
+                    radius=18,
+                    zoom=10,
+                    height=650,
+                    map_style="carto-positron",
+                    hover_data={
+                        "Primary Type": True,
+                        "Arrest": True if "Arrest" in m_df.columns else False,
+                    },
+                )
+                fig_d.update_layout(title="Spatial Density (Heatmap)")
+                st.plotly_chart(fig_d, use_container_width=True)
+
+            else:
+                fig_g = px.scatter_map(
+                    m_df,
+                    lat="lat",
+                    lon="lon",
+                    color=color_by,
+                    zoom=10,
+                    height=650,
+                    map_style="carto-positron",
+                    opacity=0.35,
+                    hover_data={
+                        "Primary Type": True,
+                        "Arrest": True if "Arrest" in m_df.columns else False,
+                    },
+                )
+                st.plotly_chart(fig_g, use_container_width=True)
+
+        st.markdown(
+            """
+**Interaction tips**
+- Use scroll/trackpad to zoom; drag to pan.
+- Click legend items to isolate categories.
+- In animated mode, press Play to inspect hotspot evolution over years.
+"""
+        )
+
+# ----------------------------
+# Tab 3: Categories & Arrests
+# ----------------------------
+with tab3:
+    if df.empty:
+        st.warning("No data under current filters.")
+    else:
+        top_item = df["Primary Type"].value_counts().idxmax()
+        top_pct = (df["Primary Type"].value_counts().max() / len(df)) * 100
+        st.info(
+            f"Under the current filter, **{top_item}** is the most frequent type, "
+            f"representing **{top_pct:.1f}%** of the sample."
+        )
+
+        col_c1, col_c2 = st.columns([2, 1])
+        with col_c1:
+            arr_data = df.groupby("Primary Type")["Arrest"].mean().reset_index()
+            arr_data["Rate"] = arr_data["Arrest"] * 100
+            fig_c = px.bar(
+                arr_data.sort_values("Rate"),
+                x="Rate",
+                y="Primary Type",
+                orientation="h",
+                color="Rate",
+                color_continuous_scale="RdYlGn",
+                title="Arrest Rate by Category",
+            )
+            st.plotly_chart(fig_c, use_container_width=True)
+
+        with col_c2:
+            if "hour" in df.columns and df["hour"].notna().any():
+                h_data_sum = df.dropna(subset=["hour"]).groupby("hour").size()
+                peak_hour = int(h_data_sum.idxmax()) if not h_data_sum.empty else 0
+            else:
+                peak_hour = 0
+
+            st.markdown("### Enforcement Insights")
+            st.markdown(
+                f"""
+- **Peak Timing**: The highest risk window in the current selection appears at **{peak_hour:02d}:00**.
+- **Typical pattern**:
+  - **High efficiency** crimes tend to be proactive (e.g., narcotics).
+  - **Low efficiency** crimes tend to be reactive (e.g., theft).
+"""
+            )
+
+# ----------------------------
+# Tab 4: Technical Insights
+# ----------------------------
+with tab4:
+    st.markdown("### Data Diagnostics")
+    st.markdown(
+        """
+- **Data Source**: Chicago Data Portal.
+- **Note**: High correlations between identifiers and time variables can indicate time leakage risks.
+- **Maps**: Records with missing coordinates are excluded from spatial views.
+"""
+    )
+    num_cols = df.select_dtypes(include=["number"]).columns
+    if len(num_cols) > 0:
+        corr = df[num_cols].corr()
+        fig_corr = px.imshow(
+            corr,
+            text_auto=".2f",
+            color_continuous_scale="RdBu_r",
+            title="Numeric Correlations",
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+    else:
+        st.info("No numeric columns available for correlation plot.")

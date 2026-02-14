@@ -1,0 +1,11 @@
+.DS_Store
+.idea/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+.streamlit/secrets.toml
+processed_chicago_crime_data.csv
+test_2025.csv
