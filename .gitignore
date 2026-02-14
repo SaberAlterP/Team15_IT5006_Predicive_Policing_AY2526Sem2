@@ -9,3 +9,6 @@ venv/
 .streamlit/secrets.toml
 processed_chicago_crime_data.csv
 test_2025.csv
+.streamlit_cache/
+*.csv
+*.csv.gz

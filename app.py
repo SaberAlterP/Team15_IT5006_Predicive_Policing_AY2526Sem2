@@ -11,7 +11,6 @@ import streamlit as st
 st.set_page_config(page_title="Chicago Crime Dashboard", layout="wide")
 px.defaults.template = "plotly_white"
 
-# Streamlit version compatibility
 _FORM_SUBMIT_SIG = inspect.signature(st.form_submit_button).parameters
 _COL_SIG = inspect.signature(st.columns).parameters
 
@@ -31,15 +30,48 @@ def cols(spec, **kwargs):
 
 
 # -----------------------------
-# 2) CSS (Sidebar card + multiselect tags + Apply button visible)
+# 2) CSS (Sidebar min width + sidebar card + multiselect tags + Apply button visible + Loading overlay)
 # -----------------------------
 st.markdown(
     """
 <style>
-/* ---------- Global spacing ---------- */
+/* -----------------------------
+   GLOBAL LAYOUT
+------------------------------ */
 .block-container { padding-top: 1.2rem; }
 
-/* ---------- Sidebar base ---------- */
+/* -----------------------------
+   SIDEBAR: enforce a larger minimum width to prevent squishing
+   - This prevents the "select all" button from becoming vertical text
+   - Works by forcing min-width on common sidebar wrappers
+------------------------------ */
+
+/* Choose your minimum sidebar width here */
+:root{
+  --sidebar-min-width: 360px;   /* <- you can set to 340/360/380 based on preference */
+}
+
+/* The sidebar container itself */
+section[data-testid="stSidebar"]{
+  min-width: var(--sidebar-min-width) !important;
+  width: max(var(--sidebar-min-width), 21rem) !important; /* keep a sensible base width */
+}
+
+/* Some Streamlit builds wrap sidebar content in additional elements */
+section[data-testid="stSidebar"] > div,
+section[data-testid="stSidebar"] > div:first-child,
+section[data-testid="stSidebar"] div[data-testid="stSidebarContent"]{
+  min-width: var(--sidebar-min-width) !important;
+}
+
+/* If the app uses the resizable layout wrapper, prevent it from shrinking too far */
+div[data-testid="stAppViewContainer"] > div{
+  min-width: 0;
+}
+
+/* -----------------------------
+   SIDEBAR THEME
+------------------------------ */
 [data-testid="stSidebar"]{
   background: linear-gradient(180deg, #fbfcfe 0%, #f6f7fb 100%);
   border-right: 1px solid #e7e9f2;
@@ -49,7 +81,6 @@ section[data-testid="stSidebar"] .block-container{
   padding-bottom: 0.8rem;
 }
 
-/* ---------- Sidebar form looks like a card ---------- */
 section[data-testid="stSidebar"] div[data-testid="stForm"],
 section[data-testid="stSidebar"] form{
   background: #ffffff;
@@ -59,38 +90,29 @@ section[data-testid="stSidebar"] form{
   box-shadow: 0 8px 22px rgba(17, 24, 39, 0.06);
 }
 
-/* Sidebar headings */
-section[data-testid="stSidebar"] h1,
-section[data-testid="stSidebar"] h2,
 section[data-testid="stSidebar"] h3{
   margin: 0.2rem 0 0.7rem 0;
   letter-spacing: -0.02em;
-}
-section[data-testid="stSidebar"] h3{
   font-size: 1.35rem;
   font-weight: 800;
   color: #111827;
 }
 
-/* Labels */
 section[data-testid="stSidebar"] label{
   font-weight: 650 !important;
   color: #111827 !important;
 }
 
-/* ---------- Multiselect / Select styling (BaseWeb) ---------- */
 section[data-testid="stSidebar"] [data-baseweb="select"] > div{
   border-radius: 12px !important;
   border-color: #e5e7eb !important;
   background: #ffffff !important;
-  box-shadow: inset 0 1px 0 rgba(17, 24, 39, 0.02);
 }
 section[data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within{
   border-color: #f08b8b !important;
   box-shadow: 0 0 0 3px rgba(240, 139, 139, 0.25) !important;
 }
 
-/* Selected pills/tags */
 section[data-testid="stSidebar"] [data-baseweb="tag"]{
   background: #e45b5b !important;
   color: #ffffff !important;
@@ -98,14 +120,10 @@ section[data-testid="stSidebar"] [data-baseweb="tag"]{
   border: 1px solid rgba(0,0,0,0.05) !important;
   font-weight: 700 !important;
 }
-section[data-testid="stSidebar"] [data-baseweb="tag"] span{
-  color: #ffffff !important;
-}
-section[data-testid="stSidebar"] [data-baseweb="tag"] svg{
-  fill: #ffffff !important;
-}
+section[data-testid="stSidebar"] [data-baseweb="tag"] span{ color:#fff !important; }
+section[data-testid="stSidebar"] [data-baseweb="tag"] svg{ fill:#fff !important; }
 
-/* ---------- Buttons (general) ---------- */
+/* Base button styling in sidebar */
 section[data-testid="stSidebar"] button{
   border-radius: 12px !important;
   padding: 0.55rem 0.85rem !important;
@@ -113,43 +131,54 @@ section[data-testid="stSidebar"] button{
   border: 1px solid #e5e7eb !important;
   background: #ffffff !important;
 }
-section[data-testid="stSidebar"] button:hover{
-  border-color: #d7dbe7 !important;
-  background: #fbfbfd !important;
-}
 
-/* ---------- Divider inside form ---------- */
 section[data-testid="stSidebar"] hr{
   margin: 0.8rem 0 0.9rem 0;
   border: none;
   border-top: 1px solid #e7e9f2;
 }
 
-/* ---------- Apply button (IMPORTANT) ----------
-   Only style the LAST submit button inside the sidebar form (Apply).
-   This avoids relying on kind="primary" which varies across Streamlit versions. */
+/* Right-align the "select all" button blocks (Years/Categories) */
+section[data-testid="stSidebar"] .btn-right{
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  width: 100%;
+}
+
+/* target the actual button inside the wrapper */
+section[data-testid="stSidebar"] .btn-right div[data-testid="stFormSubmitButton"]{
+  width: auto !important;
+  flex: 0 0 auto !important;
+}
+
+section[data-testid="stSidebar"] .btn-right div[data-testid="stFormSubmitButton"] > button{
+  width: 112px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  line-height: 44px !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  flex: 0 0 auto !important;
+}
+
+/* Make the final Apply button taller + highlighted */
 section[data-testid="stSidebar"] form div[data-testid="stFormSubmitButton"]:last-of-type button{
   background: linear-gradient(180deg, #f2a0a0 0%, #e86a6a 100%) !important;
   color: #ffffff !important;
   border: 1px solid rgba(0,0,0,0.06) !important;
   box-shadow: 0 10px 24px rgba(232, 106, 106, 0.25) !important;
+  height: 52px !important;
   padding: 0.8rem 0.9rem !important;
   border-radius: 14px !important;
   font-size: 1.05rem !important;
 }
-
-/* Force all text/icon inside Apply to be white (fix “button box exists but label invisible”) */
 section[data-testid="stSidebar"] form div[data-testid="stFormSubmitButton"]:last-of-type button *{
   color: #ffffff !important;
   fill: #ffffff !important;
 }
 
-section[data-testid="stSidebar"] form div[data-testid="stFormSubmitButton"]:last-of-type button:hover{
-  filter: brightness(0.98);
-  transform: translateY(-0.5px);
-}
-
-/* ---------- KPI cards (st.metric) - compact + avoid ellipsis ---------- */
+/* KPI cards */
 .stMetric{
   background-color:#ffffff;
   padding:10px 12px;
@@ -176,28 +205,124 @@ div[data-testid="stMetricValue"] > div{
   text-overflow:clip !important;
   color: #111827 !important;
 }
-div[data-testid="stHorizontalBlock"]{ gap: 0.75rem; }
+
+/* Loading overlay */
+.loading-overlay{
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: rgba(248, 250, 252, 0.92);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.loading-card{
+  width: min(560px, 92vw);
+  background: #ffffff;
+  border: 1px solid #e7e9f2;
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(17, 24, 39, 0.14);
+  padding: 18px 18px 16px 18px;
+}
+.loading-title{
+  font-size: 1.1rem;
+  font-weight: 850;
+  color: #111827;
+  margin: 0 0 6px 0;
+}
+.loading-sub{
+  font-size: 0.95rem;
+  color: #4b5563;
+  margin: 0 0 14px 0;
+  line-height: 1.4;
+}
+.loading-bar{
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  overflow: hidden;
+  border: 1px solid #e7e9f2;
+}
+.loading-bar > div{
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, #f2a0a0, #e86a6a, #f2a0a0);
+  background-size: 200% 100%;
+  animation: loading-move 1.1s ease-in-out infinite;
+  border-radius: 999px;
+}
+@keyframes loading-move{
+  0% { transform: translateX(-60%); background-position: 0% 50%; }
+  50% { transform: translateX(60%); background-position: 100% 50%; }
+  100% { transform: translateX(-60%); background-position: 0% 50%; }
+}
+.loading-foot{
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 # -----------------------------
-# 3) Data Loading
+# 3) Data Loading (Hugging Face dataset via Parquet; fixes UnicodeDecodeError)
 # -----------------------------
-@st.cache_data
-def load_data():
-    path = Path(__file__).parent / "processed_chicago_crime_data.csv"
-    if not path.exists():
-        st.error(f"Data file not found: {path}")
-        return pd.DataFrame()
+HF_DATASET_ID = "Ayanamikus/chicago-crime"
 
-    df = pd.read_csv(path)
+CACHE_DIR = Path(".streamlit_cache")
+CACHE_DIR.mkdir(exist_ok=True)
 
+LOCAL_PARQUET = CACHE_DIR / "chicago_crime_cached.parquet"
+
+
+def _show_loading_overlay(title: str, subtitle: str = ""):
+    ph = st.empty()
+    ph.markdown(
+        f"""
+<div class="loading-overlay">
+  <div class="loading-card">
+    <div class="loading-title">{title}</div>
+    <div class="loading-sub">{subtitle}</div>
+    <div class="loading-bar"><div></div></div>
+    <div class="loading-foot">Please keep this tab open.</div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    return ph
+
+
+@st.cache_data(show_spinner=False)
+def load_data_from_hf_parquet(sample_rows: int = 300_000, seed: int = 42) -> pd.DataFrame:
+    if LOCAL_PARQUET.exists():
+        df = pd.read_parquet(LOCAL_PARQUET)
+        return _postprocess_df(df)
+
+    from datasets import load_dataset
+
+    ds = load_dataset(HF_DATASET_ID, split="train")
+
+    if sample_rows and sample_rows > 0 and sample_rows < len(ds):
+        ds = ds.shuffle(seed=seed).select(range(sample_rows))
+
+    df = ds.to_pandas()
+    df.to_parquet(LOCAL_PARQUET, index=False)
+    return _postprocess_df(df)
+
+
+def _postprocess_df(df: pd.DataFrame) -> pd.DataFrame:
     if "Date" in df.columns:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
-    # Feature recovery with consistent naming
+    if "Year" not in df.columns and "year" in df.columns:
+        df["Year"] = df["year"]
+
     if "hour" not in df.columns:
         df["hour"] = df["Date"].dt.hour if "Date" in df.columns else pd.NA
     if "day_of_week" not in df.columns:
@@ -207,7 +332,6 @@ def load_data():
             df["month_year"] = df["Date"].dt.to_period("M").astype(str)
         else:
             df["month_year"] = pd.NA
-
     if "month" not in df.columns:
         if "Date" in df.columns:
             df["month"] = df["Date"].dt.to_period("M").dt.to_timestamp()
@@ -217,8 +341,17 @@ def load_data():
     return df
 
 
-df_all = load_data()
-if df_all.empty:
+loading = _show_loading_overlay(
+    "Loading dataset from Hugging Face…",
+    f"Using Parquet backend to avoid CSV decoding errors. Dataset: {HF_DATASET_ID}",
+)
+try:
+    df_all = load_data_from_hf_parquet(sample_rows=300_000, seed=42)
+finally:
+    loading.empty()
+
+if df_all is None or df_all.empty:
+    st.error("No data loaded. Please check the Hugging Face dataset availability and your network.")
     st.stop()
 
 # -----------------------------
@@ -227,7 +360,7 @@ if df_all.empty:
 required = {"Year", "Primary Type", "Arrest", "Domestic"}
 missing_req = [c for c in required if c not in df_all.columns]
 if missing_req:
-    st.error(f"Missing required columns in CSV: {missing_req}")
+    st.error(f"Missing required columns in dataset: {missing_req}")
     st.stop()
 
 all_years = sorted(df_all["Year"].dropna().unique())
@@ -235,31 +368,26 @@ all_types = sorted(df_all["Primary Type"].dropna().unique())
 
 
 def _sanitize_selection(values, options, fallback):
-    """Keep only items present in options; if empty, return fallback."""
     s = [v for v in (values or []) if v in options]
     return s if s else fallback
 
 
-# Initialize session_state
 if "applied_years" not in st.session_state:
     st.session_state["applied_years"] = all_years
 if "applied_types" not in st.session_state:
     default_types = [t for t in ["THEFT", "BATTERY", "NARCOTICS"] if t in all_types] or all_types
     st.session_state["applied_types"] = default_types
 
-# Draft values (edited in the form before clicking Apply)
 if "draft_years" not in st.session_state:
     st.session_state["draft_years"] = st.session_state["applied_years"]
 if "draft_types" not in st.session_state:
     st.session_state["draft_types"] = st.session_state["applied_types"]
 
-# Pending flags for "select all" buttons
 if "_pending_select_all_years" not in st.session_state:
     st.session_state["_pending_select_all_years"] = False
 if "_pending_select_all_types" not in st.session_state:
     st.session_state["_pending_select_all_types"] = False
 
-# Sanitize current state
 st.session_state["applied_years"] = _sanitize_selection(st.session_state["applied_years"], all_years, all_years)
 st.session_state["draft_years"] = _sanitize_selection(
     st.session_state["draft_years"], all_years, st.session_state["applied_years"]
@@ -280,25 +408,33 @@ if st.session_state.get("_pending_select_all_types", False):
 with st.sidebar.form("filters_form", clear_on_submit=False):
     st.markdown("### Filters")
 
-    # Years row
-    y_sel, y_btn = cols([6, 2], vertical_alignment="bottom")
+    y_sel, y_btn = cols([7, 3], vertical_alignment="bottom")
     with y_sel:
         st.multiselect("Years", all_years, key="draft_years")
     with y_btn:
-        btn_all_years = form_submit("Select all years", use_container_width=True)
+        st.markdown('<div class="btn-right">', unsafe_allow_html=True)
+        btn_all_years = form_submit(
+            "select all",
+            key="select_all_years",
+            use_container_width=False,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # Types row
-    t_sel, t_btn = cols([6, 2], vertical_alignment="bottom")
+    t_sel, t_btn = cols([7, 3], vertical_alignment="bottom")
     with t_sel:
         st.multiselect("Categories", all_types, key="draft_types")
     with t_btn:
-        btn_all_types = form_submit("Select all categories", use_container_width=True)
+        st.markdown('<div class="btn-right">', unsafe_allow_html=True)
+        btn_all_types = form_submit(
+            "select all",
+            key="select_all_types",
+            use_container_width=False,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
-
     apply_btn = st.form_submit_button("Apply", use_container_width=True)
 
-# Handle button clicks (avoid touching widget-bound state in the same run)
 if btn_all_years:
     st.session_state["_pending_select_all_years"] = True
     st.rerun()
@@ -308,12 +444,9 @@ if btn_all_types:
     st.rerun()
 
 if apply_btn:
-    years_to_apply = _sanitize_selection(st.session_state.get("draft_years"), all_years, all_years)
-    types_to_apply = _sanitize_selection(st.session_state.get("draft_types"), all_types, all_types)
-    st.session_state["applied_years"] = years_to_apply
-    st.session_state["applied_types"] = types_to_apply
+    st.session_state["applied_years"] = _sanitize_selection(st.session_state.get("draft_years"), all_years, all_years)
+    st.session_state["applied_types"] = _sanitize_selection(st.session_state.get("draft_types"), all_types, all_types)
 
-# Use APPLIED filters
 s_years = st.session_state["applied_years"]
 s_types = st.session_state["applied_types"]
 df = df_all[(df_all["Year"].isin(s_years)) & (df_all["Primary Type"].isin(s_types))].copy()
@@ -356,12 +489,7 @@ with tab1:
         show_range_slider = st.checkbox("Show range slider", value=True, key="t_slider")
 
         st.markdown("---")
-        granularity = st.selectbox(
-            "Granularity",
-            ["Monthly", "Weekly", "Daily"],
-            index=0,
-            key="t_granularity",
-        )
+        granularity = st.selectbox("Granularity", ["Monthly", "Weekly", "Daily"], index=0, key="t_granularity")
         top_n_types = st.slider("Top N Types (for stacked chart)", 3, 12, 6, key="t_topn")
 
     with t_col_plot:
@@ -390,11 +518,7 @@ with tab1:
                 ts["Val"] = ts["Val"].rolling(window=6, min_periods=1).mean()
 
             fig_ts = px.line(ts, x="t", y="Val", title=f"{granularity} Trend: {metric}")
-            fig_ts.update_layout(
-                xaxis_title="Time",
-                yaxis_title=y_title,
-                hovermode="x unified",
-            )
+            fig_ts.update_layout(xaxis_title="Time", yaxis_title=y_title, hovermode="x unified")
             if show_range_slider:
                 fig_ts.update_layout(xaxis=dict(rangeslider=dict(visible=True)))
 
@@ -406,13 +530,10 @@ with tab1:
                 line_width=0,
                 annotation_text="COVID-19 Lockdown",
             )
-
             st.plotly_chart(fig_ts, use_container_width=True)
 
     st.markdown("---")
-
     st.subheader("Interactive Category Composition Over Time (Stacked)")
-    st.caption("Tip: click legend items to isolate categories; zoom and pan to inspect local changes.")
 
     if "Date" in df.columns and df["Date"].notna().any():
         dfx = df.dropna(subset=["Date"]).copy()
@@ -421,13 +542,7 @@ with tab1:
         top_types = dfx["Primary Type"].value_counts().head(top_n_types).index.tolist()
         dfx["Type_grouped"] = dfx["Primary Type"].where(dfx["Primary Type"].isin(top_types), other="OTHER")
 
-        area = (
-            dfx.groupby(["t", "Type_grouped"])
-            .size()
-            .reset_index(name="Count")
-            .sort_values("t")
-        )
-
+        area = dfx.groupby(["t", "Type_grouped"]).size().reset_index(name="Count").sort_values("t")
         fig_area = px.area(
             area,
             x="t",
@@ -441,14 +556,7 @@ with tab1:
         st.info("Cannot build stacked composition plot: missing/invalid Date.")
 
     st.markdown("---")
-
     st.subheader("Hourly Activity Density (Heatmap)")
-    st.markdown(
-        f"""
-        **Insight**: This heatmap shows the intersection of hour and weekday.  
-        Peak hour in the current selection: **{peak_hour:02d}:00**.
-        """
-    )
 
     if "day_of_week" not in df.columns or "hour" not in df.columns:
         st.warning("Cannot draw heatmap: missing 'day_of_week' or 'hour' column.")
@@ -488,20 +596,8 @@ with tab2:
                 index=0,
                 key="s_mode",
             )
-            max_points = st.slider(
-                "Max points (performance)",
-                2000,
-                60000,
-                20000,
-                step=2000,
-                key="s_maxpts",
-            )
-            color_by = st.selectbox(
-                "Color by",
-                ["Primary Type", "Arrest", "Domestic"],
-                index=0,
-                key="s_colorby",
-            )
+            max_points = st.slider("Max points (performance)", 2000, 60000, 20000, step=2000, key="s_maxpts")
+            color_by = st.selectbox("Color by", ["Primary Type", "Arrest", "Domestic"], index=0, key="s_colorby")
             show_only_arrests = st.checkbox("Show arrests only", value=False, key="s_only_arrests")
 
         m_df = df.dropna(subset=["Latitude", "Longitude"]).copy()
@@ -548,10 +644,7 @@ with tab2:
                     zoom=10,
                     height=650,
                     map_style="carto-positron",
-                    hover_data={
-                        "Primary Type": True,
-                        "Arrest": True if "Arrest" in m_df.columns else False,
-                    },
+                    hover_data={"Primary Type": True, "Arrest": True if "Arrest" in m_df.columns else False},
                 )
                 fig_d.update_layout(title="Spatial Density (Heatmap)")
                 st.plotly_chart(fig_d, use_container_width=True)
@@ -566,21 +659,9 @@ with tab2:
                     height=650,
                     map_style="carto-positron",
                     opacity=0.35,
-                    hover_data={
-                        "Primary Type": True,
-                        "Arrest": True if "Arrest" in m_df.columns else False,
-                    },
+                    hover_data={"Primary Type": True, "Arrest": True if "Arrest" in m_df.columns else False},
                 )
                 st.plotly_chart(fig_g, use_container_width=True)
-
-        st.markdown(
-            """
-**Interaction tips**
-- Use scroll/trackpad to zoom; drag to pan.
-- Click legend items to isolate categories.
-- In animated mode, press Play to inspect hotspot evolution over years.
-"""
-        )
 
 # ----------------------------
 # Tab 3: Categories & Arrests
@@ -635,20 +716,14 @@ with tab4:
     st.markdown("### Data Diagnostics")
     st.markdown(
         """
-- **Data Source**: Chicago Data Portal.
-- **Note**: High correlations between identifiers and time variables can indicate time leakage risks.
+- **Data Source**: Hugging Face dataset `Ayanamikus/chicago-crime` (loaded via Parquet).
 - **Maps**: Records with missing coordinates are excluded from spatial views.
 """
     )
     num_cols = df.select_dtypes(include=["number"]).columns
     if len(num_cols) > 0:
         corr = df[num_cols].corr()
-        fig_corr = px.imshow(
-            corr,
-            text_auto=".2f",
-            color_continuous_scale="RdBu_r",
-            title="Numeric Correlations",
-        )
+        fig_corr = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", title="Numeric Correlations")
         st.plotly_chart(fig_corr, use_container_width=True)
     else:
         st.info("No numeric columns available for correlation plot.")
