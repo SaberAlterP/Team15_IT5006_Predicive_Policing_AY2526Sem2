@@ -1,7 +1,9 @@
-datasets
 holidays
 matplotlib
-pandas
-plotly
 seaborn
-streamlit
+streamlit>=1.31,<2
+altair>=5,<6
+plotly>=5,<6
+pandas>=2,<3
+pyarrow>=14
+datasets>=2.16
