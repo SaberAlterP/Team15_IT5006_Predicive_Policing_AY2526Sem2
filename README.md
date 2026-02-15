@@ -49,8 +49,8 @@ Navigate to the `notebook/` directory and run the `.ipynb` files to review our a
 * **4.1 Local Deployment**:
 run:
 ```
-streamlit run src/app.py
+streamlit run src/Dashboard.py
 ```
 * **4.2 Cloud Version**:
 Access our live interactive dashboard here:
-[ Final Cloud Version URL]*(添加最终版本演示链接)*
+[https://team15it5006predicivepolicingay2526sem2-4oumidjohqqhlhp6p2vvkt.streamlit.app/]
