@@ -254,8 +254,8 @@ HF_DATASET_ID = "Ayanamikus/chicago-crime"
 CACHE_DIR = Path("../.streamlit_cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# Sampling sizes (requested: 500k main sample)
-LOCAL_MAIN_SAMPLE = CACHE_DIR / "main_sample_500k.parquet"
+# Sampling sizes (requested: 300k main sample)
+LOCAL_MAIN_SAMPLE = CACHE_DIR / "main_sample_300k.parquet"
 LOCAL_MAP_SAMPLE = CACHE_DIR / "map_sample_60k.parquet"
 
 
@@ -350,7 +350,7 @@ def _balanced_sample_by_year(
 
 
 @st.cache_data(show_spinner=False)
-def load_main_sample(sample_rows: int = 500_000, seed: int = 42) -> pd.DataFrame:
+def load_main_sample(sample_rows: int = 300_000, seed: int = 42) -> pd.DataFrame:
     if LOCAL_MAIN_SAMPLE.exists():
         df = pd.read_parquet(LOCAL_MAIN_SAMPLE, engine="pyarrow")
         return _postprocess_df(df)
@@ -436,11 +436,11 @@ def load_map_sample(max_points: int = 60_000, seed: int = 42) -> pd.DataFrame:
 
 loading = _show_loading_overlay(
     "Loading dataset (Cloud-safe)…",
-    f"Dataset: {HF_DATASET_ID} | Building cached samples (500,000 for charts; 60,000 for maps).",
+    f"Dataset: {HF_DATASET_ID} | Building cached samples for dashboard and maps.",
 )
 try:
-    # Requested: main sample = 500,000
-    df_all = load_main_sample(sample_rows=500_000, seed=42)
+    # Requested: main sample = 300k
+    df_all = load_main_sample(sample_rows=300_000, seed=42)
     map_df_all = load_map_sample(max_points=60_000, seed=42)
 finally:
     loading.empty()
@@ -848,10 +848,10 @@ with tab4:
         st.info("No numeric columns available for correlation plot")
 
 # ----------------------------
-# Tab 5: Sampling Method (UPDATED)
+# Tab 5: Sampling Method (NEW)
 # ----------------------------
 with tab5:
-    st.markdown("### Sampling Method")
+    st.markdown("### Sampling Method (English)")
 
     st.markdown(
         """
@@ -879,6 +879,6 @@ This dashboard does **not** load the full Chicago crime dataset into memory. Ins
 
     st.markdown("---")
     st.markdown("#### Current configuration")
-    st.write("Main sample target rows:", "500,000")
+    st.write("Main sample target rows:", "300,000")
     st.write("Map sample target rows:", "60,000")
     st.write("Random seed:", "42")
