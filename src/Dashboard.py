@@ -254,6 +254,7 @@ HF_DATASET_ID = "Ayanamikus/chicago-crime"
 CACHE_DIR = Path("../.streamlit_cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
+# Sampling sizes (requested: 300k main sample)
 LOCAL_MAIN_SAMPLE = CACHE_DIR / "main_sample_300k.parquet"
 LOCAL_MAP_SAMPLE = CACHE_DIR / "map_sample_60k.parquet"
 
@@ -330,13 +331,20 @@ def _balanced_sample_by_year(
         parts.append(sub.sample(n=take, random_state=rng_seed))
         rng_seed += 1
 
-    out = pd.concat(parts, ignore_index=True) if parts else dfx.sample(n=min(n_total, len(dfx)), random_state=seed)
+    out = (
+        pd.concat(parts, ignore_index=True)
+        if parts
+        else dfx.sample(n=min(n_total, len(dfx)), random_state=seed)
+    )
 
     if len(out) < min(n_total, len(dfx)):
         remaining = dfx.drop(index=out.index, errors="ignore")
         need = min(n_total - len(out), len(remaining))
         if need > 0:
-            out = pd.concat([out, remaining.sample(n=need, random_state=seed + 999)], ignore_index=True)
+            out = pd.concat(
+                [out, remaining.sample(n=need, random_state=seed + 999)],
+                ignore_index=True,
+            )
 
     return out
 
@@ -431,7 +439,8 @@ loading = _show_loading_overlay(
     f"Dataset: {HF_DATASET_ID} | Building cached samples for dashboard and maps.",
 )
 try:
-    df_all = load_main_sample(sample_rows=600_000, seed=42)
+    # Requested: main sample = 300k
+    df_all = load_main_sample(sample_rows=300_000, seed=42)
     map_df_all = load_map_sample(max_points=60_000, seed=42)
 finally:
     loading.empty()
@@ -566,8 +575,9 @@ r2c1, r2c2 = st.columns(2)
 r2c1.metric("Categories", f"{df['Primary Type'].nunique()}")
 r2c2.metric("Selected Years", f"{len(s_years)}")
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["Temporal Trends", "Spatial Analysis (Map)", "Categories & Arrests", "Technical Insights"]
+# Added new tab for sampling method description
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["Temporal Trends", "Spatial Analysis (Map)", "Categories & Arrests", "Technical Insights", "Sampling Method"]
 )
 
 # ----------------------------
@@ -677,7 +687,7 @@ with tab1:
         st.plotly_chart(fig_h, use_container_width=True)
 
 # ----------------------------
-# Tab 2: Spatial Analysis (Map)  <-- your priority
+# Tab 2: Spatial Analysis (Map)
 # ----------------------------
 with tab2:
     st.markdown("### Interactive Spatial Patterns")
@@ -836,3 +846,39 @@ with tab4:
         st.plotly_chart(fig_corr, use_container_width=True)
     else:
         st.info("No numeric columns available for correlation plot")
+
+# ----------------------------
+# Tab 5: Sampling Method (NEW)
+# ----------------------------
+with tab5:
+    st.markdown("### Sampling Method")
+
+    st.markdown(
+        """
+This dashboard does **not** load the full Chicago crime dataset into memory. Instead, it uses **two cached samples**:
+
+1. **Main chart sample (simple random sample)**
+   - Source: Hugging Face dataset split `"train"`.
+   - Method: **shuffle once with a fixed seed** and then **take the first N rows** (`select(range(sample_rows))`).
+   - Purpose: keep charts (time series, category bars, heatmaps) responsive while still being broadly representative.
+
+2. **Map sample (year-balanced stratified sample)**
+   - Source: same dataset, but restricted to map-related columns.
+   - Steps:
+     1. Shuffle and take an **intermediate candidate pool** of size `intermediate = max(200_000, max_points * 4)`
+        (capped by dataset size) to limit memory/time.
+     2. Convert to pandas and **drop rows without coordinates** (`Latitude`, `Longitude`).
+     3. Apply **stratified sampling by Year**: allocate a roughly equal quota per year so each year appears on the animated map.
+        - Quota: `quota = n_total // number_of_years` (at least 1).
+        - For each year: sample up to `quota` rows.
+        - If the result is still smaller than `n_total`, fill the remaining slots by sampling from the leftover rows.
+   - Purpose: ensure **consistent year-to-year representation** for animation frames and prevent recent years (often higher volume)
+     from dominating the map.
+"""
+    )
+
+    st.markdown("---")
+    st.markdown("#### Current configuration")
+    st.write("Main sample target rows:", "300,000")
+    st.write("Map sample target rows:", "60,000")
+    st.write("Random seed:", "42")
