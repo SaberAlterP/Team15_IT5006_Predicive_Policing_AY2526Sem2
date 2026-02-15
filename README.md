@@ -31,6 +31,7 @@ Follow these steps to test the project in your local environment:
 ### 1. Clone the repository
 ```bash
 git clone https://github.com/SaberAlterP/Team15_IT5006_Predicive_Policing_AY2526Sem2.git
+
 cd [Project Folder Name]
 
 ```
