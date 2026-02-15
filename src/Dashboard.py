@@ -851,7 +851,7 @@ with tab4:
 # Tab 5: Sampling Method (NEW)
 # ----------------------------
 with tab5:
-    st.markdown("### Sampling Method (English)")
+    st.markdown("### Sampling Method")
 
     st.markdown(
         """
@@ -882,3 +882,4 @@ This dashboard does **not** load the full Chicago crime dataset into memory. Ins
     st.write("Main sample target rows:", "300,000")
     st.write("Map sample target rows:", "60,000")
     st.write("Random seed:", "42")
+
