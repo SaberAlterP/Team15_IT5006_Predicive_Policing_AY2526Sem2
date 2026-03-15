@@ -74,6 +74,7 @@ streamlit run src/Dashboard.py
 ```
 
 * **4.2 Cloud Version**:  
-Access our live interactive dashboard here:  
+Access our live interactive dashboard here:
+```
 [https://team15it5006predicivepolicingay2526sem2-4oumidjohqqhlhp6p2vvkt.streamlit.app/]
 ```
