@@ -270,10 +270,10 @@ with tab1:
 
     with c2:
         # Location-related categorical features
-        location_name             = st.selectbox('location_name',             CATEGORICAL_LEVELS['location_name'])
-        unified_location_category = st.selectbox('unified_location_category', CATEGORICAL_LEVELS['unified_location_category'])
-        new_offense_category_name = st.selectbox('New_offense_category_name', CATEGORICAL_LEVELS['New_offense_category_name'])
-        offense_name              = st.selectbox('offense_name',              CATEGORICAL_LEVELS['offense_name'])
+        location_name             = st.selectbox('location_name',             CATEGORICAL_LEVELS['location_name'],             index=23)  # Grocery/Supermarket
+        unified_location_category = st.selectbox('unified_location_category', CATEGORICAL_LEVELS['unified_location_category'], index=5)   # Retail/Commercial
+        new_offense_category_name = st.selectbox('New_offense_category_name', CATEGORICAL_LEVELS['New_offense_category_name'], index=5)   # Drug/Narcotic Offenses
+        offense_name              = st.selectbox('offense_name',              CATEGORICAL_LEVELS['offense_name'],              index=13)  # Drug/Narcotic Violations
 
     with c3:
         # Temporal numeric features; min/max constraints provide lightweight
