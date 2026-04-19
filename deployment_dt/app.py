@@ -1,4 +1,6 @@
 import io
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -7,7 +9,9 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 st.set_page_config(page_title='Arrest Prediction - Decision Tree', layout='wide')
 
-BUNDLE_PATH = 'decision_tree_bundle.pkl'
+# Resolve path relative to this file so it works on Streamlit Cloud regardless
+# of the working directory (which defaults to the repo root, not this folder).
+BUNDLE_PATH = Path(__file__).resolve().parent / 'decision_tree_bundle.pkl'
 
 @st.cache_resource
 
