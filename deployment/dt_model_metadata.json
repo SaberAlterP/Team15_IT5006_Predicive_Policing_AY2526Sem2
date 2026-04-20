@@ -1,0 +1,61 @@
+{
+  "model_name": "Decision Tree (Balanced)",
+  "target": "Arrest",
+  "feature_cols": [
+    "UNIFIED_LOCATION_CODE",
+    "month",
+    "day",
+    "hour",
+    "weekday",
+    "is_weekend",
+    "is_holiday",
+    "crime_against",
+    "offense_category_name"
+  ],
+  "categorical_features": [
+    "crime_against",
+    "offense_category_name"
+  ],
+  "categorical_levels": {
+    "crime_against": [
+      "Not a Crime",
+      "Person",
+      "Property",
+      "Society"
+    ],
+    "offense_category_name": [
+      "Arson",
+      "Assault Offenses",
+      "Bribery",
+      "Burglary/Breaking & Entering",
+      "Curfew/Loitering/Vagrancy Violations",
+      "Disorderly Conduct",
+      "Drug/Narcotic Offenses",
+      "Fraud Offenses",
+      "Gambling Offenses",
+      "Homicide Offenses",
+      "Human Trafficking",
+      "Kidnapping/Abduction",
+      "Larceny/Theft Offenses",
+      "Liquor Law Violations",
+      "Other Offenses",
+      "Pornography/Obscene Material",
+      "Prostitution Offenses",
+      "Robbery",
+      "Sex Offenses",
+      "Trespass of Real Property",
+      "Weapon Law Violations"
+    ]
+  },
+  "numeric_ranges": {
+    "UNIFIED_LOCATION_CODE": [1, 10],
+    "month": [1, 12],
+    "day": [1, 31],
+    "hour": [0, 23],
+    "weekday": [0, 6],
+    "is_weekend": [0, 1],
+    "is_holiday": [0, 1]
+  },
+  "dataset": "Chicago Crime Data (2015-2025)",
+  "split_strategy": "random_stratified_80_20"
+}
